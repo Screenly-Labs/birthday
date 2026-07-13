@@ -19,8 +19,13 @@
   --color-gold: #f6c453;
   --font-display: 'Fraunces', ui-serif, Georgia, 'Times New Roman', serif;
   --font-sans: 'Hanken Grotesk', ui-sans-serif, system-ui, sans-serif;
+}
 
-  /* Confetti palette, indexed by --hue (0..4) from buildConfetti(). */
+/* Confetti palette, referenced only from JS-set inline styles (var(--confetti-N)).
+   Kept OUT of @theme on purpose: Tailwind v4 tree-shakes theme vars it can't see
+   used in the stylesheet, which would drop every colour but the fallback and make
+   the whole shower one colour. As a plain :root block these are always emitted. */
+:root {
   --confetti-0: #f6c453;
   --confetti-1: #ff6b9d;
   --confetti-2: #6ad3c9;
@@ -196,14 +201,26 @@
     border-radius: 50%;
     height: calc(0.7rem * var(--size));
   }
+
+  /* Reduced motion: hold the shower still as a scatter. Lives in @layer
+     components (not base) so it can override the animated .confetti__bit above —
+     the components layer wins over base regardless of specificity. */
+  @media (prefers-reduced-motion: reduce) {
+    .confetti__bit {
+      top: var(--top);
+      transform: translateX(var(--drift)) rotate(var(--rotate));
+    }
+  }
 }
 
 @layer base {
   @media (prefers-reduced-motion: no-preference) {
     /* The confetti shower: each scrap falls the full height with a little
-       horizontal drift and spin, offset by its own delay, looping forever. */
+       horizontal drift and spin. The delay is applied *negative* so every piece
+       starts mid-fall — the shower fills the whole frame from the first paint
+       instead of clustering at the top edge. */
     .confetti__bit {
-      animation: confetti-fall var(--duration) linear var(--delay) infinite;
+      animation: confetti-fall var(--duration) linear calc(var(--delay) * -1) infinite;
     }
 
     /* One orchestrated entrance for the greeting. */
@@ -218,14 +235,6 @@
     }
     .card__from {
       animation: rise 900ms cubic-bezier(0.2, 0.7, 0.2, 1) 320ms both;
-    }
-  }
-
-  /* With reduced motion, the confetti would otherwise sit frozen above the fold;
-     hide it and let the greeting stand on its own. */
-  @media (prefers-reduced-motion: reduce) {
-    .confetti {
-      display: none;
     }
   }
 

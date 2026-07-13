@@ -57,6 +57,7 @@ const scatterConfetti = (): void => {
     const el = document.createElement('span')
     el.className = piece.round ? 'confetti__bit confetti__bit--round' : 'confetti__bit'
     el.style.setProperty('--left', `${piece.left * 100}%`)
+    el.style.setProperty('--top', `${piece.top * 100}%`)
     el.style.setProperty('--delay', `${piece.delay}s`)
     el.style.setProperty('--duration', `${piece.duration}s`)
     el.style.setProperty('--drift', `${piece.drift * 12}vw`)

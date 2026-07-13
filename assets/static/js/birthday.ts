@@ -37,7 +37,8 @@ export const formatSignature = (from: string): string => (from ? `— ${from}` :
 // stylesheet.
 export type ConfettiPiece = {
   left: number // horizontal start, 0..1 of the viewport width
-  delay: number // animation delay in seconds
+  top: number // resting vertical position, 0..1 (used for the still reduced-motion scatter)
+  delay: number // animation delay in seconds — spans one full fall (see below)
   duration: number // fall duration in seconds
   drift: number // horizontal drift, -1..1
   rotate: number // total rotation in degrees
@@ -51,14 +52,21 @@ export const CONFETTI_HUES = 5
 
 // Deterministically lay out `count` confetti pieces. `rng` is injectable so the
 // layout is testable and reproducible; main.ts passes Math.random at runtime.
+//
+// `delay` spans a piece's own `duration` so that, applied as a *negative*
+// animation-delay, each scrap starts mid-fall — the loop's steady state fills the
+// whole frame from the first paint instead of clustering at the top. `top` gives
+// each piece a resting position for the still, reduced-motion scatter.
 export const buildConfetti = (count: number, rng: () => number = Math.random): ConfettiPiece[] => {
   const pieces: ConfettiPiece[] = []
   if (!Number.isFinite(count) || count <= 0) return pieces
   for (let i = 0; i < count; i++) {
+    const duration = 4 + rng() * 4
     pieces.push({
       left: rng(),
-      delay: rng() * 4,
-      duration: 4 + rng() * 4,
+      top: rng(),
+      duration,
+      delay: rng() * duration,
       drift: rng() * 2 - 1,
       rotate: (rng() * 2 - 1) * 720,
       hue: Math.min(CONFETTI_HUES - 1, Math.floor(rng() * CONFETTI_HUES)),
