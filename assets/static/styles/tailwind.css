@@ -258,3 +258,31 @@
     }
   }
 }
+
+/* =========================================================================
+   Degraded mode — old/weak signage players (html.legacy set by the inline gate
+   in index.html). Treated like prefers-reduced-motion but stronger: assume the
+   device can't afford animation at all. Content stays fully legible; the entrance
+   just appears and the confetti holds as a static scatter instead of falling.
+   ========================================================================= */
+
+/* Hold the confetti at its resting scatter. The base .confetti__bit parks each
+   scrap off-screen at top:-6vh and relies on the fall animation, so without this
+   the killed animation would hide the whole shower. Mirrors the
+   prefers-reduced-motion rule; lives in @layer components to beat the base layer. */
+@layer components {
+  html.legacy .confetti__bit {
+    top: var(--top);
+    transform: translateX(var(--drift)) rotate(var(--rotate));
+  }
+}
+
+/* The kill-switch itself. Unlayered + !important so it wins over every layer,
+   including the @media (prefers-reduced-motion: no-preference) animation rules. */
+html.legacy *,
+html.legacy *::before,
+html.legacy *::after {
+  animation: none !important;
+  transition: none !important;
+  will-change: auto !important;
+}

@@ -1,7 +1,10 @@
-// Browser entry. Bun bundles this (inlining ./birthday) into a self-contained
-// classic script with no exports, so it loads from a plain <script>. Keep it
+// Browser entry. esbuild bundles this (inlining ./birthday) into a self-contained
+// classic IIFE with no exports, so it loads from a plain <script>. Keep it
 // export-free and free of top-level await.
 
+// Side-effect import: installs the replaceChildren shim for the older-browser
+// degraded mode. Must stay first so the shim is in place before any render.
+import './polyfills'
 import {
   buildConfetti,
   type ConfettiPiece,
@@ -15,9 +18,16 @@ import {
 // deployments carry the celebration in the launch URL's query string.
 const EXAMPLE = 'name=Alex&message=Have+an+amazing+day!&from=The+Screenly+Team'
 
-// How many scraps of confetti to scatter. Static count — plenty for a festive
-// screen without overwhelming a low-powered signage player.
+// How many scraps of confetti to scatter. Old/weak devices (flagged html.legacy
+// by the inline gate in index.html) get a lighter field, since the CSS also drops
+// the fall animation there and a full 60-piece static scatter is just extra DOM.
 const CONFETTI_COUNT = 60
+const CONFETTI_COUNT_LEGACY = 24
+
+const confettiCount = (): number =>
+  document.documentElement.classList.contains('legacy')
+    ? CONFETTI_COUNT_LEGACY
+    : CONFETTI_COUNT
 
 const text = (id: string, value: string): void => {
   const el = document.getElementById(id)
@@ -52,7 +62,7 @@ const render = (params: URLSearchParams): void => {
 const scatterConfetti = (): void => {
   const field = document.getElementById('confetti')
   if (!field) return
-  const pieces = buildConfetti(CONFETTI_COUNT)
+  const pieces = buildConfetti(confettiCount())
   const nodes = pieces.map((piece: ConfettiPiece) => {
     const el = document.createElement('span')
     el.className = piece.round ? 'confetti__bit confetti__bit--round' : 'confetti__bit'
