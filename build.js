@@ -1,134 +1,54 @@
 #!/usr/bin/env bun
 /* global Bun */
-// Builds the static site into ./dist for GitHub Pages. Like the Quotes and
-// Opening Hours apps this is a plain static bundle — no server. The celebration
-// details aren't shipped as a file: they arrive entirely in the launch URL's
-// query string (see the manifest at .well-known/signage-app.json), so there's no
-// dataset to copy or hash. Steps:
-//   1. vendor fonts from @fontsource (sync-fonts.js)
-//   2. assemble dist/ (index.html + static assets + .well-known, copied not mutated)
-//   3. compile Tailwind v4 CSS (minified)
-//   4. bundle TypeScript → browser JS (minified, ./birthday inlined)
-//   5. stamp a content hash into asset URLs (?v=) for cache-busting
-//   6. write CNAME for the custom domain
-// dist/ is gitignored; CI uploads it as the Pages artifact.
+// Builds the static site into ./dist for GitHub Pages. The degraded-mode support
+// floor, the CSS down-leveling recipe (cascade-layers flatten + Lightning CSS),
+// the JS bundler, and the inline degraded-mode gate all come from
+// @screenly-labs/signage-kit. This file only orchestrates the app-specific steps.
 
-import { rm, mkdir, cp, readFile, writeFile } from 'node:fs/promises'
-import cascadeLayers from '@csstools/postcss-cascade-layers'
-import browserslist from 'browserslist'
-import { build as esbuild } from 'esbuild'
-import { browserslistToTargets, transform as lightningcss } from 'lightningcss'
-import postcss from 'postcss'
+import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { bundleJs, injectGate, processCss } from '@screenly-labs/signage-kit/build'
 import { run as syncFonts } from './sync-fonts.js'
 
 const DIST = 'dist'
 const DOMAIN = 'birthday.srly.io'
 
-// The `browserslist` field in package.json is the CSS support floor: Lightning
-// CSS down-levels the stylesheet to it. The JS is lowered separately by esbuild to
-// a fixed ES2017 syntax floor (kept at/below the browserslist minimum); esbuild
-// can't read browserslist, so keep the two in sync if you change the floor. See
-// the degraded-mode notes in index.html / tailwind.css.
-const cssTargets = browserslistToTargets(browserslist())
-
-// 1. Vendor the Bun-managed webfonts into ./assets before copying.
+// 1. Vendor the Bun-managed webfonts into ./assets.
 await syncFonts()
 
-// 2. Fresh dist/, then copy the web root (everything served at /static/...), the
-// page shell, and the signage manifest served at the well-known path. Sources
-// are never minified in place.
+// 2. Fresh dist/, copy the web root + manifest, and copy the page shell with the
+//    shared degraded-mode gate injected before the stylesheet.
 await rm(DIST, { recursive: true, force: true })
-await mkdir(`${DIST}/static`, { recursive: true })
-// Create the output subdirs up front so Tailwind/esbuild never race an absent dir.
 await mkdir(`${DIST}/static/styles`, { recursive: true })
 await mkdir(`${DIST}/static/js`, { recursive: true })
 await cp('assets/static/fonts', `${DIST}/static/fonts`, { recursive: true })
 await cp('assets/static/images', `${DIST}/static/images`, { recursive: true })
-await cp('index.html', `${DIST}/index.html`)
-// Signage app manifest served at /.well-known/signage-app.json (see the
-// app-store's docs/app-manifest.md). GitHub Pages returns it as application/json
-// with Access-Control-Allow-Origin: * so the store and players can fetch it.
 await cp('.well-known', `${DIST}/.well-known`, { recursive: true })
+await writeFile(`${DIST}/index.html`, injectGate(await readFile('index.html', 'utf8')))
 
-// 3. Tailwind: compile the source CSS (unminified), then down-level + minify it
-// with Lightning CSS against the browserslist floor. This flattens @layer (which
-// old engines would otherwise drop wholesale, unstyling the page), lowers
-// color-mix()/nesting, and adds vendor prefixes — the Bun/Tailwind-native
-// equivalent of autoprefixer + postcss-preset-env.
+// 3. Tailwind -> the kit's CSS pipeline (flatten @layer, down-level to the floor).
 const cssOut = `${DIST}/static/styles/main.css`
 const tailwind = Bun.spawn(
-  [
-    'node_modules/.bin/tailwindcss',
-    '--input',
-    'assets/static/styles/tailwind.css',
-    '--output',
-    cssOut
-  ],
+  ['node_modules/.bin/tailwindcss', '--input', 'assets/static/styles/tailwind.css', '--output', cssOut],
   { stdout: 'inherit', stderr: 'inherit' }
 )
 if ((await tailwind.exited) !== 0) {
   console.error('✗ Tailwind build failed')
   process.exit(1)
 }
-// Flatten cascade layers first: Lightning CSS lowers color-mix()/nesting and adds
-// prefixes but does NOT unwrap @layer, and an engine below the floor drops every
-// rule inside a layer block (unstyling the page). postcss-cascade-layers rewrites
-// layer order into equivalent :not(#\#) specificity so the cascade survives
-// without @layer. Then Lightning CSS down-levels the rest + minifies.
-try {
-  const flattened = await postcss([cascadeLayers()]).process(await readFile(cssOut, 'utf8'), {
-    from: cssOut
-  })
-  const { code: cssCode } = lightningcss({
-    filename: cssOut,
-    code: Buffer.from(flattened.css),
-    minify: true,
-    targets: cssTargets
-  })
-  await writeFile(cssOut, cssCode)
-} catch (err) {
-  console.error(`✗ CSS build failed (${cssOut})`)
-  console.error(err)
-  process.exit(1)
-}
-console.log(`✓ CSS: ${cssOut} (Tailwind → cascade-layers flatten → Lightning CSS)`)
+await writeFile(cssOut, await processCss(await readFile(cssOut, 'utf8'), { flattenLayers: true, filename: cssOut }))
+console.log(`✓ CSS: ${cssOut}`)
 
-// 4. TypeScript → browser JS with esbuild. Bundles main.ts (inlining ./birthday
-// and the polyfills shim), lowers modern syntax (?., ??, spread) to the ES2017
-// floor so old engines can parse it, and emits an IIFE so the output stays a
-// self-contained self-executing classic script loadable from a plain <script>.
-try {
-  await esbuild({
-    entryPoints: ['assets/static/js/main.ts'],
-    bundle: true,
-    minify: true,
-    format: 'iife',
-    target: ['es2017'],
-    outfile: `${DIST}/static/js/main.js`
-  })
-} catch (err) {
-  console.error('✗ JS build failed')
-  console.error(err)
-  process.exit(1)
-}
-console.log(`✓ JS: ${DIST}/static/js/main.js (esbuild, iife, es2017)`)
+// 4. Client TS -> the kit's bundler (self-contained IIFE at the floor's syntax level).
+await bundleJs('assets/static/js/main.ts', `${DIST}/static/js/main.js`)
+console.log(`✓ JS: ${DIST}/static/js/main.js`)
 
-// 5. Cache-busting: hash the built JS + CSS so the token changes exactly when
-// shipped code changes, then stamp it into the page's asset URLs.
-const fingerprint = await Promise.all([
-  readFile(`${DIST}/static/js/main.js`),
-  readFile(`${DIST}/static/styles/main.css`)
-])
+// 5. Cache-busting: stamp a content hash of the built JS+CSS into the page's ?v= URLs.
 const hasher = new Bun.CryptoHasher('sha256')
-for (const buf of fingerprint) hasher.update(buf)
+for (const path of [`${DIST}/static/js/main.js`, cssOut]) hasher.update(await readFile(path))
 const version = hasher.digest('hex').slice(0, 10)
-
-const html = await readFile(`${DIST}/index.html`, 'utf8')
-await writeFile(`${DIST}/index.html`, html.replaceAll('__ASSET_VERSION__', version))
+await writeFile(`${DIST}/index.html`, (await readFile(`${DIST}/index.html`, 'utf8')).replaceAll('__ASSET_VERSION__', version))
 console.log(`✓ Stamped asset version ${version}`)
 
 // 6. Custom domain for GitHub Pages.
 await writeFile(`${DIST}/CNAME`, `${DOMAIN}\n`)
-console.log(`✓ CNAME: ${DOMAIN}`)
-
 console.log('Build complete → dist/')
