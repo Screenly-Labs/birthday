@@ -275,7 +275,8 @@
 /* App-specific resting state: hold the confetti at its scatter. The base
    .confetti__bit parks each scrap off-screen at top:-6vh and relies on the fall
    animation, so without this the kill-switch would hide the whole shower. (The
-   generic html.legacy kill-switch itself lives in the kit's degraded.css.) */
+   generic html.legacy kill-switch itself comes from the kit's preset, imported
+   above.) */
 @layer components {
   html.legacy .confetti__bit {
     top: var(--top);
