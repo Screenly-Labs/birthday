@@ -66,6 +66,7 @@
   }
 
   body {
+    min-height: 100vh; /* fallback for engines below the svh floor (~2018 players) */
     min-height: 100svh;
     background-color: var(--color-ground-top);
     background-image: radial-gradient(circle at 50% 18%, var(--color-glow) 0%, transparent 55%),
@@ -83,6 +84,7 @@
     position: relative;
     display: grid;
     place-items: center;
+    min-height: 100vh; /* fallback for engines below the svh floor (~2018 players) */
     min-height: 100svh;
     padding: clamp(1.5rem, 6vmin, 4rem);
     overflow: hidden;
